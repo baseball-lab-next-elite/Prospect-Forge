@@ -1,5 +1,5 @@
 // 【例】今の番号が v1 なら v2 に、v2 なら v3 に書き換える
-const CACHE_NAME = 'train-elite-v4';
+const CACHE_NAME = 'train-elite-v5';
 
 const CACHE_NAME = 'train-elite-v1';
 const STATIC_ASSETS = [
