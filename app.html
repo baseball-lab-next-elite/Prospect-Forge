@@ -10,6 +10,7 @@
 <meta name="apple-mobile-web-app-title" content="Train Elite">
 <meta name="theme-color" content="#000000">
 <link rel="apple-touch-icon" href="icon_large.png">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
   :root {
     --black: #000000;
@@ -73,7 +74,8 @@
   .profile-name { font-size: 18px; font-weight: 700; color: #eef; }
   .profile-sub { font-size: 13px; color: var(--muted); }
   .metric-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
-  .metric-card { background: var(--dark-gray); border: 0.5px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .metric-card { background: var(--dark-gray); border: 0.5px solid var(--border); border-radius: 10px; padding: 12px 14px; cursor: pointer; transition: border-color 0.15s; }
+  .metric-card:hover { border-color: rgba(71,200,255,0.3); }
   .metric-name { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
   .metric-val { font-size: 20px; font-weight: 700; color: #eef; line-height: 1; }
   .form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
@@ -97,22 +99,14 @@
   .settings-label { font-size: 14px; color: #ccd; flex: 1; }
   .settings-val { font-size: 13px; color: var(--muted); }
   #toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: var(--green); color: var(--black); padding: 10px 20px; border-radius: 20px; font-size: 13px; font-weight: 700; opacity: 0; transition: opacity 0.3s; pointer-events: none; z-index: 999; }
+  .chart-control { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; flex-wrap: wrap; gap: 10px; }
+  .toggle-checkbox { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); cursor: pointer; }
+  .toggle-checkbox input { accent-color: var(--accent2); cursor: pointer; }
   @media (max-width: 480px) {
     body { padding: 10px; }
     .form-grid { grid-template-columns: 1fr; gap: 10px; }
     .form-group:not(.full) { grid-column: 1 / -1; }
     .calc-container { justify-content: flex-start; margin-top: 4px; }
-  }
-  @media print {
-    body { background: white; color: black; padding: 0; }
-    #app { border: none; }
-    .hdr, .nav, .filters, .pdf-btn, #toast { display: none !important; }
-    .screen { display: none !important; }
-    #screen-ranking { display: block !important; padding: 0; }
-    .card { background: none; border: none; padding: 0; }
-    .rank-table th { color: #333; border-bottom: 2px solid #333; }
-    .rank-table td { color: #000; border-bottom: 1px solid #ddd; }
-    .rank-num { color: #000 !important; }
   }
 </style>
 </head>
@@ -241,6 +235,19 @@
           </div>
         </div>
       </div>
+      
+      <div class="card" id="chart-card">
+        <div class="chart-control">
+          <div class="card-title" id="chart-title" style="margin-bottom:0;">📈 30日推移比較 (項目をタップで切り替え)</div>
+          <label class="toggle-checkbox">
+            <input type="checkbox" id="toggle-team-avg" checked onchange="renderChart()"> チーム平均を表示
+          </label>
+        </div>
+        <div style="position:relative; width:100%; height:220px; background:var(--dark-gray); border-radius:8px; padding:10px;">
+          <canvas id="analyticsChart"></canvas>
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-title" id="profile-grid-title">各種目の歴代最高データ</div>
         <div class="metric-grid" id="metric-grid"></div>
@@ -362,17 +369,25 @@
 </div>
 <div id="toast">✓ 報告を送信しました！</div>
 <script>
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbwu2H8EVZNQgkdq0YV1J0-P04rtYAmPs8TB5jwOazXs8sCKKJW48Ztp4oRuc39VOe5Y/exec';
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbywrMGcXGYOLarbqzZz-yfDi8X98VaRVgIndgrLDKqCsRXWQwylgbTwVdcUVNnfb6Cu/exec';
 
 let currentUser = null;
 let teamMembers = [];
-let reportsData = [];
+let reportsData = []; 
+let allBestRecords = {}; 
 let rankingMode = 'daily'; 
 let selectedPlayerForCoach = null; 
+let activeChartMetric = 'batspeed'; 
+let myChart = null;
 
 const avatarColors = ['#e8ff47','#47c8ff','#ff4757','#2ed573','#ffa502','#a29bfe','#fd79a8','#fdcb6e','#74b9ff','#55efc4','#e17055','#b2bec3'];
 const units = {bench1rm:'kg',bench10rm:'kg',squat1rm:'kg',squat10rm:'kg',dead1rm:'kg',dead10rm:'kg',pulldown:'km/h',batspeed:'km/h',chinups:'回',sprint10:'秒',sprint30:'秒',triplejump:'m',medicine:'m',height:'cm',weight:'kg',ffm:'kg',ffmi:''};
 const eventMap = {bench1rm:'b1',bench10rm:'b10',squat1rm:'s1',squat10rm:'s10',dead1rm:'d1',dead10rm:'d10',pulldown:'pull',batspeed:'bat',chinups:'chin',sprint10:'s10m',sprint30:'s30m',triplejump:'triple',medicine:'med',height:'height',weight:'weight',ffm:'ffm',ffmi:'ffmi'};
+
+const metricTargets = {
+  ffm: 65, ffmi: 22, b1: 100, b10: 80, s1: 140, s10: 110, d1: 160, d10: 130,
+  chin: 20, bat: 150, pull: 140, med: 18.0, s10m: 1.60, s30m: 3.90, triple: 9.50, weight: 75, height: 180
+};
 
 async function attemptLogin() {
   const name = document.getElementById('l-name').value.trim();
@@ -393,6 +408,7 @@ async function attemptLogin() {
       currentUser = result.user;
       teamMembers = result.members;
       reportsData = result.reports;
+      allBestRecords = result.bestRecords || {};
       
       document.getElementById('login-screen').style.display = 'none';
       document.getElementById('app').style.display = 'flex';
@@ -411,7 +427,9 @@ function initApp() {
   document.getElementById('hdr-username').textContent = currentUser.name;
   document.getElementById('hdr-avatar-char').textContent = currentUser.name[0];
   document.getElementById('f-name').value = currentUser.name;
-  document.getElementById('f-date').value = new Date().toISOString().split('T')[0];
+  
+  const nowJST = new Date(new Date().getTime() + (9 * 60 * 60 * 1000));
+  document.getElementById('f-date').value = nowJST.toISOString().split('T')[0];
   
   document.getElementById('sett-name').textContent = currentUser.name;
   document.getElementById('sett-sub').textContent = currentUser.role === '指導者' ? '指導者アカウント' : `選手ID: ${currentUser.userId}`;
@@ -447,7 +465,9 @@ function forceLogout() {
   currentUser = null;
   teamMembers = [];
   reportsData = [];
+  allBestRecords = {};
   selectedPlayerForCoach = null;
+  if(myChart) { myChart.destroy(); myChart = null; }
   document.getElementById('l-name').value = '';
   document.getElementById('l-id').value = '';
   document.getElementById('l-pass').value = '';
@@ -456,17 +476,7 @@ function forceLogout() {
   showScreen('dashboard');
 }
 
-async function logout() {
-  if (currentUser) {
-    try {
-      await fetch(GAS_URL, {
-        method: 'POST',
-        mode: 'cors',
-        headers: { 'Content-Type': 'text/plain' },
-        body: JSON.stringify({ action: 'login', name: currentUser.name })
-      });
-    } catch (e) {}
-  }
+function logout() {
   forceLogout();
 }
 
@@ -482,7 +492,8 @@ function showScreen(id) {
 }
 
 function updateDashboard() {
-  const todayStr = new Date().toISOString().split('T')[0];
+  const nowJST = new Date(new Date().getTime() + (9 * 60 * 60 * 1000));
+  const todayStr = nowJST.toISOString().split('T')[0];
   const reportedNames = reportsData.filter(r => r.date === todayStr).map(r => r.name);
   
   const doneList = teamMembers.filter(m => reportedNames.includes(m));
@@ -516,23 +527,19 @@ function renderRanking() {
   const isTime = event === 'sprint30' || event === 'sprint10';
   
   let ranks = [];
-  const todayStr = new Date().toISOString().split('T')[0];
+  const nowJST = new Date(new Date().getTime() + (9 * 60 * 60 * 1000));
+  const todayStr = nowJST.toISOString().split('T')[0];
 
   teamMembers.forEach(name => {
-    let userReports = reportsData.filter(r => r.name === name && r[apiKey] !== "" && r[apiKey] !== null && r[apiKey] !== undefined);
-    
-    if (userReports.length > 0) {
-      if (rankingMode === 'daily') {
-        let todayReport = userReports.find(r => r.date === todayStr);
-        if (todayReport) {
-          ranks.push({ n: name, v: parseFloat(todayReport[apiKey]) });
-        }
-      } else {
-        let values = userReports.map(r => parseFloat(r[apiKey])).filter(v => !isNaN(v));
-        if (values.length > 0) {
-          let bestVal = isTime ? Math.min(...values) : Math.max(...values);
-          ranks.push({ n: name, v: bestVal });
-        }
+    if (rankingMode === 'daily') {
+      let userReports = reportsData.filter(r => r.name === name && r[apiKey] !== "" && r[apiKey] !== null && r[apiKey] !== undefined);
+      let todayReport = userReports.find(r => r.date === todayStr);
+      if (todayReport) {
+        ranks.push({ n: name, v: parseFloat(todayReport[apiKey]) });
+      }
+    } else {
+      if (allBestRecords[name] && allBestRecords[name][apiKey] !== undefined) {
+        ranks.push({ n: name, v: allBestRecords[name][apiKey] });
       }
     }
   });
@@ -570,6 +577,7 @@ function updateProfile() {
   document.getElementById('prof-avatar').textContent = targetName[0];
   
   let myReports = reportsData.filter(r => r.name === targetName);
+  let playerBests = allBestRecords[targetName] || {};
   
   let latestWeight = '--';
   let latestHeight = '--';
@@ -584,36 +592,16 @@ function updateProfile() {
   
   document.getElementById('prof-weight').textContent = latestWeight;
 
-  // 歴代最高値を返す関数
-  const getBest = (key, isTime = false) => {
-    if (myReports.length === 0) return null;
-    let valid = myReports.filter(r => r[key] !== "" && r[key] !== null && r[key] !== undefined).map(r => parseFloat(r[key])).filter(v => !isNaN(v));
-    if (valid.length === 0) return null;
-    return isTime ? Math.min(...valid) : Math.max(...valid);
-  };
+  const getBest = (key) => playerBests[key] || null;
 
-  // 【追加機能】30日間数値が向上（最高値更新）していないかを判定する関数
   const isStagnant30Days = (key, isTime = false) => {
-    if (myReports.length === 0) return false;
+    let bestVal = getBest(key);
+    if (bestVal === null) return false;
     
-    // 1. まずその種目の「歴代最高値」を割り出す
-    let validReports = myReports.filter(r => r[key] !== "" && r[key] !== null && r[key] !== undefined && !isNaN(parseFloat(r[key])));
-    if (validReports.length === 0) return false;
-    let allValues = validReports.map(r => parseFloat(r[key]));
-    let bestVal = isTime ? Math.min(...allValues) : Math.max(...allValues);
+    let recentReports = myReports.filter(r => r[key] !== "" && r[key] !== null && r[key] !== undefined && !isNaN(parseFloat(r[key])));
+    if (recentReports.length === 0) return true; 
     
-    // 2. 「直近30日以内」の報告データを抽出する
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    let recentReports = validReports.filter(r => new Date(r.date) >= thirtyDaysAgo);
-    
-    // 30日以内に報告データ自体が1件もない場合は停滞とみなす
-    if (recentReports.length === 0) return true;
-    
-    // 3. 直近30日間のデータの中に「歴代最高値と並ぶ、または超えるデータ」があるか確認
     let hasBestIn30Days = recentReports.some(r => parseFloat(r[key]) === bestVal);
-    
-    // 30日以内に最高値が一度も出ていなければ「停滞（true）」を返す
     return !hasBestIn30Days;
   };
 
@@ -622,76 +610,143 @@ function updateProfile() {
   let dl10 = getBest('d10') || 0;
   let chin = getBest('chin') || 0;
 
-  let bpWeightScore = bp10 * 1.5625;
-  let sqWeightScore = sq10 * 0.8333333;
-  let dlWeightScore = dl10 * 0.75;
-  let chinWeightScore = chin * 5;
-
-  let totalScore = bpWeightScore + sqWeightScore + dlWeightScore + chinWeightScore;
+  let totalScore = (bp10 * 1.5625) + (sq10 * 0.8333333) + (dl10 * 0.75) + (chin * 5);
 
   let rankStr = 'D';
   let rankDescStr = '発展途上・トレーニング開始期（1年生レベル）';
-  
-  if (totalScore >= 500) {
-    rankStr = 'S';
-    rankDescStr = '全国上位・フィジカル突出（プロ・スカウト対象）';
-  } else if (totalScore >= 420) {
-    rankStr = 'A';
-    rankDescStr = '強豪校主力クラス（県上位・私学レギュラー級）';
-  } else if (totalScore >= 340) {
-    rankStr = 'B';
-    rankDescStr = '県上位レギュラー争い・一般部員の上位層';
-  } else if (totalScore >= 260) {
-    rankStr = 'C';
-    rankDescStr = '平均的な高校球児（一般的な公立校レベル）';
-  }
+  if (totalScore >= 500) { rankStr = 'S'; rankDescStr = '全国上位・フィジカル突出（プロ・スカウト対象）'; }
+  else if (totalScore >= 420) { rankStr = 'A'; rankDescStr = '強豪校主力クラス（県上位・私学レギュラー級）'; }
+  else if (totalScore >= 340) { rankStr = 'B'; rankDescStr = '県上位レギュラー争い・一般部員の上位層'; }
+  else if (totalScore >= 260) { rankStr = 'C'; rankDescStr = '平均的な高校球児（一般的な公立校レベル）'; }
 
   document.getElementById('prof-rank-label').textContent = rankStr;
   document.getElementById('prof-total-score').textContent = `総合指数: ${totalScore.toFixed(1)}点`;
   document.getElementById('prof-sub-id').textContent = `身長 ${latestHeight}cm / ${rankDescStr}`;
 
-  const b_ffm = getBest('ffm');
-  const b_ffmi = getBest('ffmi');
-  const b_b10 = getBest('b10');
-  const b_s10 = getBest('s10');
-  const b_d10 = getBest('d10');
-  const b_chin = getBest('chin');
-  const b_bat = getBest('bat');
-  const b_pull = getBest('pull');
-  const b_med = getBest('med');
-  const b_triple = getBest('triple');
-  const b_s10m = getBest('s10m', true);
-  const b_s30m = getBest('s30m', true);
-
   const metrics = [
-    { label: '除脂肪体重', val: b_ffm ? b_ffm.toFixed(1) + 'kg' : '--', stag: isStagnant30Days('ffm') },
-    { label: '除脂肪指数', val: b_ffmi ? b_ffmi.toFixed(1) + '' : '--', stag: isStagnant30Days('ffmi') },
-    { label: 'ベンチ 10RM', val: b_b10 ? b_b10 + 'kg' : '--', stag: isStagnant30Days('b10') },
-    { label: 'スクワット 10RM', val: b_s10 ? b_s10 + 'kg' : '--', stag: isStagnant30Days('s10') },
-    { label: 'デッドリフト 10RM', val: b_d10 ? b_d10 + 'kg' : '--', stag: isStagnant30Days('d10') },
-    { label: '懸垂', val: b_chin ? b_chin + '回' : '--', stag: isStagnant30Days('chin') },
-    { label: 'バットスピード', val: b_bat ? b_bat + 'km/h' : '--', stag: isStagnant30Days('bat') },
-    { label: 'プルダウン', val: b_pull ? b_pull + 'km/h' : '--', stag: isStagnant30Days('pull') },
-    { label: 'メディシン投げ', val: b_med ? b_med + 'm' : '--', stag: isStagnant30Days('med') },
-    { label: '三段跳び', val: b_triple ? b_triple + 'm' : '--', stag: isStagnant30Days('triple') },
-    { label: '10m走', val: b_s10m ? b_s10m.toFixed(2) + '秒' : '--', stag: isStagnant30Days('s10m', true) },
-    { label: '30m走', val: b_s30m ? b_s30m.toFixed(2) + '秒' : '--', stag: isStagnant30Days('s30m', true) }
+    { id: 'ffm', label: '除脂肪体重', val: getBest('ffm') ? getBest('ffm').toFixed(1) + 'kg' : '--', stag: isStagnant30Days('ffm') },
+    { id: 'ffmi', label: '除脂肪指数', val: getBest('ffmi') ? getBest('ffmi').toFixed(1) : '--', stag: isStagnant30Days('ffmi') },
+    { id: 'b10', label: 'ベンチ 10RM', val: getBest('b10') ? getBest('b10') + 'kg' : '--', stag: isStagnant30Days('b10') },
+    { id: 's10', label: 'スクワット 10RM', val: getBest('s10') ? getBest('s10') + 'kg' : '--', stag: isStagnant30Days('s10') },
+    { id: 'd10', label: 'デッドリフト 10RM', val: getBest('d10') ? getBest('d10') + 'kg' : '--', stag: isStagnant30Days('d10') },
+    { id: 'chin', label: '懸垂', val: getBest('chin') ? getBest('chin') + '回' : '--', stag: isStagnant30Days('chin') },
+    { id: 'bat', label: 'バットスピード', val: getBest('bat') ? getBest('bat') + 'km/h' : '--', stag: isStagnant30Days('bat') },
+    { id: 'pull', label: 'プルダウン', val: getBest('pull') ? getBest('pull') + 'km/h' : '--', stag: isStagnant30Days('pull') },
+    { id: 'med', label: 'メディシン投げ', val: getBest('med') ? getBest('med') + 'm' : '--', stag: isStagnant30Days('med') },
+    { id: 'triple', label: '三段跳び', val: getBest('triple') ? getBest('triple') + 'm' : '--', stag: isStagnant30Days('triple') },
+    { id: 's10m', label: '10m走', val: getBest('s10m') ? getBest('s10m').toFixed(2) + '秒' : '--', stag: isStagnant30Days('s10m', true) },
+    { id: 's30m', label: '30m走', val: getBest('s30m') ? getBest('s30m').toFixed(2) + '秒' : '--', stag: isStagnant30Days('s30m', true) }
   ];
   
   document.getElementById('metric-grid').innerHTML = metrics.map(m => {
-    // 指導者モード、かつ30日停滞フラグ(stag)がtrueの場合のみ文字を赤字(var(--red))にする
     const isRed = (currentUser.role === '指導者' && m.stag);
     const textColor = isRed ? 'var(--red)' : '#eef';
     const labelColor = isRed ? 'rgba(255, 71, 87, 0.7)' : 'var(--muted)';
-    const borderColor = isRed ? 'rgba(255, 71, 87, 0.2)' : 'var(--border)';
+    const borderColor = m.id === activeChartMetric ? 'var(--accent2)' : (isRed ? 'rgba(255, 71, 87, 0.2)' : 'var(--border)');
     
     return `
-      <div class="metric-card" style="border-color: ${borderColor};">
+      <div class="metric-card" style="border-color: ${borderColor};" onclick="switchChartMetric('${m.id}')">
         <div class="metric-name" style="color: ${labelColor};">${m.label}${isRed ? ' ⚠' : ''}</div>
         <div class="metric-val" style="color: ${textColor};">${m.val}</div>
       </div>
     `;
   }).join('');
+
+  renderChart();
+}
+
+function switchChartMetric(metricId) {
+  activeChartMetric = metricId;
+  updateProfile();
+}
+
+function renderChart() {
+  const targetName = currentUser.role === '指導者' ? selectedPlayerForCoach : currentUser.name;
+  if (!targetName) return;
+
+  const ctx = document.getElementById('analyticsChart').getContext('2d');
+  const showTeamAvg = document.getElementById('toggle-team-avg').checked;
+
+  const dates = [];
+  const nowJST = new Date(new Date().getTime() + (9 * 60 * 60 * 1000));
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(nowJST.getTime() - (i * 24 * 60 * 60 * 1000));
+    dates.push(d.toISOString().split('T')[0]);
+  }
+
+  const playerData = dates.map(date => {
+    const r = reportsData.find(r => r.name === targetName && r.date === date);
+    return (r && r[activeChartMetric] !== "" && r[activeChartMetric] !== undefined) ? parseFloat(r[activeChartMetric]) : null;
+  });
+
+  const teamAvgData = dates.map(date => {
+    const dailyReports = reportsData.filter(r => r.date === date && r[activeChartMetric] !== "" && r[activeChartMetric] !== undefined);
+    if (dailyReports.length === 0) return null;
+    const sum = dailyReports.reduce((acc, r) => acc + parseFloat(r[activeChartMetric]), 0);
+    return parseFloat((sum / dailyReports.length).toFixed(2));
+  });
+
+  const targetVal = metricTargets[activeChartMetric] || null;
+  const targetData = dates.map(() => targetVal);
+
+  if (myChart) { myChart.destroy(); }
+
+  const nameMap = {ffm:'除脂肪体重', ffmi:'除脂肪指数', b10:'ベンチ10RM', s10:'スクワット10RM', d10:'デッドリフト10RM', chin:'懸垂', bat:'バットスピード', pull:'プルダウン', med:'メディシン投げ', triple:'三段跳び', s10m:'10m走', s30m:'30m走', b1:'ベンチ1RM', s1:'スクワット1RM', d1:'デッドリフト1RM', weight:'体重', height:'身長'};
+  document.getElementById('chart-title').textContent = `📈 30日推移: ${nameMap[activeChartMetric] || activeChartMetric}`;
+
+  const datasets = [
+    {
+      label: '個人記録',
+      data: playerData,
+      borderColor: '#47c8ff',
+      backgroundColor: 'rgba(71, 200, 255, 0.1)',
+      borderWidth: 2.5,
+      tension: 0.1,
+      spanGaps: true,
+      pointRadius: 3
+    }
+  ];
+
+  if (showTeamAvg) {
+    datasets.push({
+      label: 'チーム平均',
+      data: teamAvgData,
+      borderColor: '#e8ff47',
+      backgroundColor: 'transparent',
+      borderWidth: 1.5,
+      borderDash: [4, 4],
+      tension: 0.1,
+      spanGaps: true,
+      pointRadius: 0
+    });
+  }
+
+  if (targetVal !== null) {
+    datasets.push({
+      label: '目標値',
+      data: targetData,
+      borderColor: '#ff4757',
+      backgroundColor: 'transparent',
+      borderWidth: 1.5,
+      borderDash: [2, 2],
+      pointRadius: 0,
+      fill: false
+    });
+  }
+
+  myChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: dates.map(d => d.slice(5)), datasets: datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { grid: { color: 'rgba(255,255,255,0.03)' }, ticks: { color: '#8899aa', font: { size: 9 } } },
+        y: { grid: { color: 'rgba(255,255,255,0.05)' }, ticks: { color: '#8899aa', font: { size: 10 } } }
+      }
+    }
+  });
 }
 
 function calcDerived() {
@@ -705,10 +760,7 @@ function calcDerived() {
       const ffmi = ffm / Math.pow(h/100, 2);
       document.getElementById('c-ffmi').textContent = ffmi.toFixed(1) + ' ';
     }
-  } else {
-    document.getElementById('c-ffm').textContent = '-- kg';
-    document.getElementById('c-ffmi').textContent = '-- ';
-  }
+  } else { document.getElementById('c-ffm').textContent = '-- kg'; document.getElementById('c-ffmi').textContent = '-- '; }
 }
 
 async function submitReport() {
@@ -719,12 +771,8 @@ async function submitReport() {
   const w = parseFloat(document.getElementById('f-weight').value) || "";
   const bf = parseFloat(document.getElementById('f-bf').value) || "";
   const h = parseFloat(document.getElementById('f-height').value) || "";
-  let ffm = "";
-  let ffmi = "";
-  if(w && bf) {
-    ffm = w * (1 - bf/100);
-    if(h) ffmi = ffm / Math.pow(h/100, 2);
-  }
+  let ffm = ""; let ffmi = "";
+  if(w && bf) { ffm = w * (1 - bf/100); if(h) ffmi = ffm / Math.pow(h/100, 2); }
 
   const payload = {
     date: document.getElementById('f-date').value,
@@ -749,15 +797,28 @@ async function submitReport() {
     const response = await fetch(GAS_URL, {
       method: 'POST',
       mode: 'cors',
-      headers: {
-        'Content-Type': 'text/plain'
-      },
+      headers: { 'Content-Type': 'text/plain' },
       body: JSON.stringify({ action: 'report', payload: payload })
     });
     const result = await response.json();
     
     if(result.success) {
       reportsData.push(payload);
+      
+      const keys = ['height','weight','bf','ffm','ffmi','bat','pull','b1','s1','d1','chin','b10','s10','d10','med','s10m','s30m','triple'];
+      if(!allBestRecords[currentUser.name]) allBestRecords[currentUser.name] = {};
+      keys.forEach(k => {
+        let val = parseFloat(payload[k]);
+        if(!isNaN(val)) {
+          let currentBest = allBestRecords[currentUser.name][k];
+          if(currentBest === undefined) { allBestRecords[currentUser.name][k] = val; } 
+          else {
+            if(k==='s10m'||k==='s30m') { if(val < currentBest) allBestRecords[currentUser.name][k] = val; }
+            else { if(val > currentBest) allBestRecords[currentUser.name][k] = val; }
+          }
+        }
+      });
+
       updateDashboard();
       
       const toast = document.getElementById('toast');
@@ -768,6 +829,8 @@ async function submitReport() {
       document.getElementById('c-ffm').textContent = '-- kg';
       document.getElementById('c-ffmi').textContent = '-- ';
       showScreen('dashboard');
+    } else {
+      alert(result.message); 
     }
   } catch (error) {
     alert('送信に失敗しました。');
@@ -777,9 +840,7 @@ async function submitReport() {
   }
 }
 
-function exportPDF() {
-  window.print();
-}
+function exportPDF() { window.print(); }
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
