@@ -242,7 +242,7 @@
         </div>
         <div style="display:flex; gap:12px; flex-wrap:wrap;">
           <div style="background:rgba(71,200,255,0.08);border:0.5px solid rgba(71,200,255,0.3);border-radius:8px;padding:10px 16px;flex:1;min-width:120px;">
-            <div style="font-size:11px;color:var(--accent2);">現在の体重</div>
+            <div style="font-size:11px;color:var(--accent2);" id="weight-label-text">現在の体重</div>
             <div style="font-size:24px;font-weight:700;color:var(--accent2);" id="prof-weight">--</div>
             <div style="font-size:11px;color:var(--muted);">kg</div>
           </div>
@@ -391,7 +391,7 @@
 
 <div id="toast">✓ 報告を送信しました！</div>
 <script>
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbzSZ8AiSw6mFCXx9uIpyFawZZbBOLxMBIAnu1dc5whCT4hSHuzOI8QV0rit3vSKyH1o/exec';
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbyEImhn8LKw0mvLE2gnmpvSDRWk4RmVqWft63KY38oQyrUC1YvsHHT-FRUyiB1rK4Ds/exec';
 
 let currentUser = null;
 let teamMembers = [];
@@ -408,11 +408,6 @@ let appConfigMap = {};
 const avatarColors = ['#e8ff47','#47c8ff','#ff4757','#2ed573','#ffa502','#a29bfe','#fd79a8','#fdcb6e','#74b9ff','#55efc4','#e17055','#b2bec3'];
 const units = {bench1rm:'kg',bench10rm:'kg',squat1rm:'kg',squat10rm:'kg',dead1rm:'kg',dead10rm:'kg',pulldown:'km/h',batspeed:'km/h',chinups:'回',sprint10:'秒',sprint30:'秒',triplejump:'m',medicine:'m',height:'cm',weight:'kg',ffm:'kg',ffmi:''};
 const eventMap = {bench1rm:'b1',bench10rm:'b10',squat1rm:'s1',squat10rm:'s10',dead1rm:'d1',dead10rm:'d10',pulldown:'pull',batspeed:'bat',chinups:'chin',sprint10:'s10m',sprint30:'s30m',triplejump:'triple',medicine:'med',height:'height',weight:'weight',ffm:'ffm',ffmi:'ffmi'};
-
-const metricTargets = {
-  ffm: 65, ffmi: 22, b1: 100, b10: 80, s1: 140, s10: 110, d1: 160, d10: 130,
-  chin: 20, bat: 150, pull: 140, med: 18.0, s10m: 1.60, s30m: 3.90, triple: 9.50, weight: 75, height: 180
-};
 
 async function attemptLogin() {
   const name = document.getElementById('l-name').value.trim();
@@ -466,7 +461,7 @@ function initApp() {
   if (currentUser.role === '指導者') {
     document.getElementById('nav-report-btn').style.display = 'none'; 
     document.getElementById('coach-selector-card').style.display = 'block'; 
-    document.getElementById('profile-grid-title').innerHTML = '各種目の歴代最高データ <span style="color:var(--red); font-size:11px; font-weight:normal; margin-left:6px;">※赤字は30日以上更新なし</span>';
+    document.getElementById('profile-grid-title').innerHTML = '各種目の歴代最高データ <span style="color:var(--red); font-size:11px; font-weight:normal; margin-left:6px;">※赤字は設定日数以上更新なし</span>';
     
     const selector = document.getElementById('coach-member-select');
     selector.innerHTML = teamMembers.map(m => `<option value="${m}">${m}</option>`).join('');
@@ -484,9 +479,7 @@ function initApp() {
   updateProfile();
 }
 
-
 function updateFormPlaceholders() {
-  // inputID -> appConfigMapのキー -> デフォルト値
   const fieldMap = [
     { id: 'f-height', key: 'height', def: '目標: 175' },
     { id: 'f-weight', key: 'weight', def: '目標: 72.0' },
@@ -614,7 +607,7 @@ function renderRanking() {
   const tbody = document.getElementById('rank-body');
   
   if (ranks.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; padding:20px; color:var(--muted);">対象 of データがありません</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="3" style="text-align:center; padding:20px; color:var(--muted);">対象のデータがありません</td></tr>`;
     return;
   }
 
@@ -658,15 +651,21 @@ function updateProfile() {
 
   const getBest = (key) => playerBests[key] || null;
 
-  const isStagnant30Days = (key, isTime = false) => {
+  const isStagnantCustomDays = (key) => {
     let bestVal = getBest(key);
     if (bestVal === null) return false;
     
-    let recentReports = myReports.filter(r => r[key] !== "" && r[key] !== null && r[key] !== undefined && !isNaN(parseFloat(r[key])));
+    const itemConfig = appConfigMap[key] || { days: 30 };
+    const alertLimitDays = itemConfig.days;
+    
+    const nowJST = new Date(new Date().getTime() + (9 * 60 * 60 * 1000));
+    const borderDate = new Date(nowJST.getTime() - (alertLimitDays * 24 * 60 * 60 * 1000));
+    
+    let recentReports = myReports.filter(r => new Date(r.date) >= borderDate && r[key] !== "" && r[key] !== null && !isNaN(parseFloat(r[key])));
     if (recentReports.length === 0) return true; 
     
-    let hasBestIn30Days = recentReports.some(r => parseFloat(r[key]) === bestVal);
-    return !hasBestIn30Days;
+    let hasBestInTerm = recentReports.some(r => parseFloat(r[key]) === bestVal);
+    return !hasBestInTerm;
   };
 
   let bp10 = getBest('b10') || 0;
@@ -688,18 +687,18 @@ function updateProfile() {
   document.getElementById('prof-sub-id').textContent = `身長 ${latestHeight}cm / ${rankDescStr}`;
 
   const metrics = [
-    { id: 'ffm', label: '除脂肪体重', val: getBest('ffm') ? getBest('ffm').toFixed(1) + 'kg' : '--', stag: isStagnant30Days('ffm') },
-    { id: 'ffmi', label: '除脂肪指数', val: getBest('ffmi') ? getBest('ffmi').toFixed(1) : '--', stag: isStagnant30Days('ffmi') },
-    { id: 'b10', label: 'ベンチ 10RM', val: getBest('b10') ? getBest('b10') + 'kg' : '--', stag: isStagnant30Days('b10') },
-    { id: 's10', label: 'スクワット 10RM', val: getBest('s10') ? getBest('s10') + 'kg' : '--', stag: isStagnant30Days('s10') },
-    { id: 'd10', label: 'デッドリフト 10RM', val: getBest('d10') ? getBest('d10') + 'kg' : '--', stag: isStagnant30Days('d10') },
-    { id: 'chin', label: '懸垂', val: getBest('chin') ? getBest('chin') + '回' : '--', stag: isStagnant30Days('chin') },
-    { id: 'bat', label: 'バットスピード', val: getBest('bat') ? getBest('bat') + 'km/h' : '--', stag: isStagnant30Days('bat') },
-    { id: 'pull', label: 'プルダウン', val: getBest('pull') ? getBest('pull') + 'km/h' : '--', stag: isStagnant30Days('pull') },
-    { id: 'med', label: 'メディシン投げ', val: getBest('med') ? getBest('med') + 'm' : '--', stag: isStagnant30Days('med') },
-    { id: 'triple', label: '三段跳び', val: getBest('triple') ? getBest('triple') + 'm' : '--', stag: isStagnant30Days('triple') },
-    { id: 's10m', label: '10m走', val: getBest('s10m') ? getBest('s10m').toFixed(2) + '秒' : '--', stag: isStagnant30Days('s10m', true) },
-    { id: 's30m', label: '30m走', val: getBest('s30m') ? getBest('s30m').toFixed(2) + '秒' : '--', stag: isStagnant30Days('s30m', true) }
+    { id: 'ffm', label: '除脂肪体重', val: getBest('ffm') ? getBest('ffm').toFixed(1) + 'kg' : '--', stag: isStagnantCustomDays('ffm') },
+    { id: 'ffmi', label: '除脂肪指数', val: getBest('ffmi') ? getBest('ffmi').toFixed(1) : '--', stag: isStagnantCustomDays('ffmi') },
+    { id: 'b10', label: 'ベンチ 10RM', val: getBest('b10') ? getBest('b10') + 'kg' : '--', stag: isStagnantCustomDays('b10') },
+    { id: 's10', label: 'スクワット 10RM', val: getBest('s10') ? getBest('s10') + 'kg' : '--', stag: isStagnantCustomDays('s10') },
+    { id: 'd10', label: 'デッドリフト 10RM', val: getBest('d10') ? getBest('d10') + 'kg' : '--', stag: isStagnantCustomDays('d10') },
+    { id: 'chin', label: '懸垂', val: getBest('chin') ? getBest('chin') + '回' : '--', stag: isStagnantCustomDays('chin') },
+    { id: 'bat', label: 'バットスピード', val: getBest('bat') ? getBest('bat') + 'km/h' : '--', stag: isStagnantCustomDays('bat') },
+    { id: 'pull', label: 'プルダウン', val: getBest('pull') ? getBest('pull') + 'km/h' : '--', stag: isStagnantCustomDays('pull') },
+    { id: 'med', label: 'メディシン投げ', val: getBest('med') ? getBest('med') + 'm' : '--', stag: isStagnantCustomDays('med') },
+    { id: 'triple', label: '三段跳び', val: getBest('triple') ? getBest('triple') + 'm' : '--', stag: isStagnantCustomDays('triple') },
+    { id: 's10m', label: '10m走', val: getBest('s10m') ? getBest('s10m').toFixed(2) + '秒' : '--', stag: isStagnantCustomDays('s10m') },
+    { id: 's30m', label: '30m走', val: getBest('s30m') ? getBest('s30m').toFixed(2) + '秒' : '--', stag: isStagnantCustomDays('s30m') }
   ];
   
   document.getElementById('metric-list-container').innerHTML = metrics.map(m => {
@@ -800,7 +799,8 @@ function renderInlineChart(metricId) {
     return parseFloat((sum / dailyReports.length).toFixed(2));
   });
 
-  const targetVal = metricTargets[metricId] || null;
+  const currentMetricConfig = appConfigMap[metricId] || {};
+  const targetVal = (currentMetricConfig && currentMetricConfig.target != null) ? currentMetricConfig.target : null;
   const targetData = dates.map(() => targetVal);
 
   if (myChart) { myChart.destroy(); }
@@ -832,7 +832,7 @@ function renderInlineChart(metricId) {
     });
   }
 
-  if (targetVal !== null) {
+  if (targetVal !== null && targetVal !== 0) {
     datasets.push({
       label: '目標',
       data: targetData,
@@ -905,7 +905,6 @@ function validateFormInputs(payload) {
     const val = parseFloat(payload[key]);
     if (isNaN(val)) continue;
 
-    // スプレのアプリ設定シートの値を優先、なければハードリミットを使用
     const configMin = (appConfigMap[key] && appConfigMap[key].min != null) ? appConfigMap[key].min : (hardLimits[key] ? hardLimits[key].min : null);
     const configMax = (appConfigMap[key] && appConfigMap[key].max != null) ? appConfigMap[key].max : (hardLimits[key] ? hardLimits[key].max : null);
 
@@ -922,7 +921,6 @@ function validateFormInputs(payload) {
 }
 
 async function submitReport() {
-  // まずバリデーション
   const w_pre = parseFloat(document.getElementById('f-weight').value) || "";
   const bf_pre = parseFloat(document.getElementById('f-bf').value) || "";
   const h_pre = parseFloat(document.getElementById('f-height').value) || "";
@@ -957,11 +955,7 @@ async function submitReport() {
   const payload = {
     date: document.getElementById('f-date').value,
     name: currentUser.name,
-    height: h, 
-    weight: w, 
-    bf: bf, 
-    ffm: ffm, 
-    ffmi: ffmi,
+    height: h, weight: w, bf: bf, ffm: ffm, ffmi: ffmi,
     bat: parseFloat(document.getElementById('f-bat').value) || "",
     pull: parseFloat(document.getElementById('f-pull').value) || "",
     b1: parseFloat(document.getElementById('f-b1').value) || "",
@@ -985,10 +979,16 @@ async function submitReport() {
       body: JSON.stringify({ action: 'report', payload: payload })
     });
     const result = await response.json();
-    console.log('GASレスポンス:', JSON.stringify(result)); 
     
     if(result.success) {
-      reportsData.push(payload);
+      let existingIdx = reportsData.findIndex(r => r.name === payload.name && r.date === payload.date);
+      if (existingIdx !== -1) {
+        for (let key in payload) {
+          if (payload[key] !== "") reportsData[existingIdx][key] = payload[key];
+        }
+      } else {
+        reportsData.push(payload);
+      }
       
       const keys = ['height','weight','bf','ffm','ffmi','bat','pull','b1','s1','d1','chin','b10','s10','d10','med','s10m','s30m','triple'];
       if(!allBestRecords[currentUser.name]) allBestRecords[currentUser.name] = {};
@@ -1081,7 +1081,6 @@ function executeCsvExport() {
   closeExportModal();
 }
 
-
 function executePdfExport() {
   const selectedBoxes = Array.from(document.querySelectorAll('#modal-chk-grid input:checked'));
   if (selectedBoxes.length === 0) { alert('最低1つの種目を選択してください'); return; }
@@ -1095,7 +1094,6 @@ function executePdfExport() {
   const selectedIds = selectedBoxes.map(b => b.value);
   const selectedLabels = selectedBoxes.map(b => b.getAttribute('data-label'));
 
-  // 印刷用ウィンドウを生成
   const printWin = window.open('', '_blank');
   const rows = myReports.map(r => {
     const cells = selectedIds.map(id => {
