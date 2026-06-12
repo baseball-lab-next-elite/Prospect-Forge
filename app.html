@@ -131,6 +131,15 @@
   .other-ex-row { display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 8px; align-items: end; }
   .other-ex-row .form-group { display: flex; flex-direction: column; gap: 4px; }
   .other-ex-del-btn { background: none; border: 0.5px solid var(--border); color: var(--red); border-radius: 8px; padding: 9px 10px; cursor: pointer; font-size: 13px; height: 38px; }
+  .target-row { background: var(--dark-gray); border: 0.5px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  .target-row-title { font-size: 13px; font-weight: 700; color: var(--accent); margin-bottom: 8px; }
+  .target-row-grid { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; }
+  .target-row-grid .form-group { display: flex; flex-direction: column; gap: 4px; }
+  .group-member-chk { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #ccd; padding: 6px 8px; border-radius: 8px; background: var(--dark-gray); cursor: pointer; }
+  .group-member-chk input { accent-color: var(--accent2); cursor: pointer; }
+  .group-list-item { display: flex; justify-content: space-between; align-items: center; background: var(--dark-gray); border: 0.5px solid var(--border); border-radius: 10px; padding: 10px 12px; cursor: pointer; }
+  .group-list-item-name { font-size: 14px; font-weight: 700; color: #eef; }
+  .group-list-item-members { font-size: 11px; color: var(--muted); margin-top: 2px; }
   @media (max-width: 480px) {
     body { padding: 10px; }
     .form-grid { grid-template-columns: 1fr; gap: 10px; }
@@ -251,7 +260,10 @@
         <button class="rank-toggle-btn" id="btn-rank-alltime" onclick="setRankMode('alltime')">歴代最高ランキング</button>
       </div>
       <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px;">
-        <div class="filters">
+        <div class="filters" style="display:flex; gap:8px; flex-wrap:wrap;">
+          <select class="filter-sel" id="rank-group" onchange="handleRankGroupChange()">
+            <option value="">👥 チーム全体</option>
+          </select>
           <select class="filter-sel" id="rank-event" onchange="renderRanking()">
             <option value="composite">🏆 総合指数</option>
             <option value="bench1rm">ベンチプレス 1RM</option>
@@ -459,6 +471,19 @@
         </div>
         <button class="logout-btn" onclick="logout()">ログアウト</button>
       </div>
+      <!-- 指導者用：グループ管理・目標値設定 -->
+      <div class="card" id="coach-admin-card" style="display:none;">
+        <div class="card-title">👥 グループ管理</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">複数の選手をグループ化し、ランキングや目標値をグループ単位で管理できます。</div>
+        <div id="group-list" style="display:flex; flex-direction:column; gap:8px; margin-bottom:10px;"></div>
+        <button class="pdf-btn" style="width:100%;justify-content:center;" onclick="openGroupModal()">＋ グループを作成</button>
+      </div>
+      <div class="card" id="coach-settings-card" style="display:none;">
+        <div class="card-title">🎯 目標値設定</div>
+        <div style="font-size:12px;color:var(--muted);margin-bottom:10px;">各種目の目標値・上下限値・停滞判定日数を設定します。</div>
+        <button class="pdf-btn" style="width:100%;justify-content:center;" onclick="openTargetSettingsModal('')">チーム全体の目標値を設定</button>
+        <div id="group-target-btns" style="display:flex; flex-direction:column; gap:8px; margin-top:8px;"></div>
+      </div>
       <div class="card" id="notif-settings-card">
         <div class="card-title">🔔 プッシュ通知</div>
         <div style="font-size:13px;color:var(--muted);margin-bottom:12px;" id="notif-status-text">通知の状態を確認中...</div>
@@ -544,8 +569,47 @@
 </div>
 
 
+<!-- グループ作成・編集モーダル -->
+<div class="modal-overlay" id="group-modal">
+  <div class="modal-card">
+    <div class="modal-header">
+      <span id="group-modal-title">👥 グループを作成</span>
+      <button class="close-modal-btn" onclick="closeGroupModal()">✕</button>
+    </div>
+    <div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:6px;">グループ名</div>
+      <input type="text" class="form-input" id="group-name-input" placeholder="例: 投手チーム / 1年生">
+    </div>
+    <div>
+      <div style="font-size:12px;color:var(--muted);margin:10px 0 6px;">メンバーを選択</div>
+      <div id="group-member-list" style="display:flex; flex-direction:column; gap:6px; max-height:280px; overflow-y:auto; padding:4px;"></div>
+    </div>
+    <div class="modal-btn-row">
+      <button class="modal-btn-secondary" id="group-delete-btn" style="display:none; color:var(--red); border-color:var(--red);" onclick="deleteGroupConfirm()">削除</button>
+      <button class="modal-btn-secondary" onclick="closeGroupModal()">キャンセル</button>
+      <button class="submit-btn" style="flex:1; margin-top:0;" id="group-save-btn" onclick="submitGroup()">保存する</button>
+    </div>
+  </div>
+</div>
+
+<!-- 目標値設定モーダル -->
+<div class="modal-overlay" id="target-settings-modal">
+  <div class="modal-card">
+    <div class="modal-header">
+      <span id="target-settings-title">🎯 目標値設定</span>
+      <button class="close-modal-btn" onclick="closeTargetSettingsModal()">✕</button>
+    </div>
+    <div style="font-size:12px; color:var(--muted);" id="target-settings-desc">各種目の目標値を設定します。空欄の項目はチーム全体の設定が使われます。</div>
+    <div id="target-settings-body" style="display:flex; flex-direction:column; gap:10px; max-height:420px; overflow-y:auto; padding:4px;"></div>
+    <div class="modal-btn-row">
+      <button class="modal-btn-secondary" onclick="closeTargetSettingsModal()">キャンセル</button>
+      <button class="submit-btn" style="flex:1; margin-top:0;" id="target-settings-save-btn" onclick="submitTargetSettings()">保存する</button>
+    </div>
+  </div>
+</div>
+
 <script>
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbxYvNQrnlidpI58bFv73w0sB7VcRFxTzcBV02axI91vRnh6eqtyr0Pq9-by77esqGhh/exec';
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbxT4dEsupUI2tH8Zm-xkY9KoA5T9YnDU4IKm8KQLxPdMXxoZz-7qK8m_ugyB0_dnZxK/exec';
 
 let currentUser = null;
 let teamMembers = [];
@@ -557,8 +621,31 @@ let activeChartMetric = null;
 let myChart = null;
 let showTeamAvgGlobal = true; 
 let activeChartRange = '30';
-let appConfigMap = {};
+let appConfigMap = {}; // チーム全体設定(常時)。選手の個人票には effectiveConfigMap() を使う
+let teamConfigMap = {}; // appConfigMapと同義(チーム全体の生設定。後方互換のため別名保持)
+let groupsData = []; // [{ group_id, group_name, members: [name,...] }, ...]
+let groupSettingsData = {}; // { group_id: { key: {target,days,min,max} } }
 let commentsData = []; // { id, from, to, body, date, read }
+let rankingGroupId = ''; // ランキング画面で選択中のグループ('' = チーム全体)
+let profileGroupId = ''; // 個人票(指導者表示時)で参照するグループID。選手本人は自動算出
+
+// 指定した選手が所属する最初のグループを返す（無ければnull）
+function findGroupForMember(name) {
+  return groupsData.find(g => g.members.includes(name)) || null;
+}
+
+// 指定した選手が実際に画面表示で使うべき目標値設定(グループ優先、無ければチーム全体)を返す
+function effectiveConfigMap(name) {
+  const group = findGroupForMember(name);
+  if (group && groupSettingsData[group.group_id]) {
+    // チーム全体設定をベースに、グループ設定で上書き
+    const merged = {};
+    Object.keys(appConfigMap).forEach(k => merged[k] = appConfigMap[k]);
+    Object.keys(groupSettingsData[group.group_id]).forEach(k => merged[k] = groupSettingsData[group.group_id][k]);
+    return merged;
+  }
+  return appConfigMap;
+}
 
 const avatarColors = ['#e8ff47','#47c8ff','#ff4757','#2ed573','#ffa502','#a29bfe','#fd79a8','#fdcb6e','#74b9ff','#55efc4','#e17055','#b2bec3'];
 const units = {bench1rm:'kg',bench10rm:'kg',squat1rm:'kg',squat10rm:'kg',dead1rm:'kg',dead10rm:'kg',pulldown:'km/h',batspeed:'km/h',chinups:'回',sprint10:'秒',sprint30:'秒',triplejump:'m',medicine:'m',height:'cm',weight:'kg',ffm:'kg',ffmi:'',composite:'点'};
@@ -591,6 +678,30 @@ function getMetricColorClassAndHex(metricId, currentValue) {
   }
 }
 
+// ランキング集計対象のメンバー一覧を返す(グループ選択時はそのメンバーのみ、未選択ならチーム全体)
+function getRankingTargetMembers() {
+  if (!rankingGroupId) return teamMembers;
+  const group = groupsData.find(g => g.group_id === rankingGroupId);
+  if (!group) return teamMembers;
+  return teamMembers.filter(m => group.members.includes(m));
+}
+
+// ランキング画面のグループ選択肢を構築(指導者・選手共通でチーム全体+全グループを表示)
+function populateRankGroupOptions() {
+  const sel = document.getElementById('rank-group');
+  if (!sel) return;
+  const current = sel.value;
+  sel.innerHTML = '<option value="">👥 チーム全体</option>' +
+    groupsData.map(g => `<option value="${g.group_id}">👥 ${g.group_name}</option>`).join('');
+  if (groupsData.some(g => g.group_id === current)) sel.value = current;
+  else rankingGroupId = '';
+}
+
+function handleRankGroupChange() {
+  rankingGroupId = document.getElementById('rank-group').value;
+  renderRanking();
+}
+
 function renderRanking() {
   const event = document.getElementById('rank-event').value;
   if (event === 'composite') { renderCompositeRanking(); return; }
@@ -599,7 +710,7 @@ function renderRanking() {
   let ranks = [];
   const nowJST = new Date(new Date().getTime() + (9 * 60 * 60 * 1000));
   const todayStr = nowJST.toISOString().split('T')[0];
-  teamMembers.forEach(name => {
+  getRankingTargetMembers().forEach(name => {
     if (rankingMode === 'daily') {
       let userReports = reportsData.filter(r => r.name === name && r[apiKey] !== "" && r[apiKey] !== null && r[apiKey] !== undefined);
       let todayReport = userReports.find(r => r.date === todayStr);
@@ -637,7 +748,7 @@ function calcCompositeScore(name) {
 
 function renderCompositeRanking() {
   let ranks = [];
-  teamMembers.forEach(name => {
+  getRankingTargetMembers().forEach(name => {
     const score = calcCompositeScore(name);
     if (score !== null) ranks.push({ n: name, v: parseFloat(score.toFixed(1)) });
   });
@@ -680,7 +791,7 @@ function renderInlineChart(metricId) {
     if (dailyReports.length === 0) return null;
     return parseFloat((dailyReports.reduce((acc, r) => acc + parseFloat(r[metricId]), 0) / dailyReports.length).toFixed(2));
   });
-  const currentMetricConfig = appConfigMap[metricId] || {};
+  const currentMetricConfig = effectiveConfigMap(targetName)[metricId] || {};
   const targetVal = (currentMetricConfig && currentMetricConfig.target != null) ? currentMetricConfig.target : null;
   const targetData = dates.map(() => targetVal);
   const pointColors = playerData.map(val => val === null ? '#47c8ff' : getMetricColorClassAndHex(metricId, val).hex);
@@ -715,9 +826,10 @@ function updateProfile() {
   }
   document.getElementById('prof-weight').textContent = latestWeight;
   const getBest = (key) => playerBests[key] || null;
+  const targetConfigMap = effectiveConfigMap(targetName);
   const isStagnantCustomDays = (key) => {
     let bestVal = getBest(key); if (bestVal === null) return false;
-    const itemConfig = appConfigMap[key] || { days: 30 }; const alertLimitDays = itemConfig.days;
+    const itemConfig = targetConfigMap[key] || { days: 30 }; const alertLimitDays = itemConfig.days;
     const nowJST = new Date(new Date().getTime() + (9 * 60 * 60 * 1000));
     const borderDate = new Date(nowJST.getTime() - (alertLimitDays * 24 * 60 * 60 * 1000));
     let recentReports = myReports.filter(r => new Date(r.date) >= borderDate && r[key] !== "" && r[key] !== null && !isNaN(parseFloat(r[key])));
@@ -815,6 +927,9 @@ async function attemptLogin() {
       reportsData    = [];
       allBestRecords = {};
       appConfigMap   = result.config || {};
+      teamConfigMap  = appConfigMap;
+      groupsData       = result.groups || [];
+      groupSettingsData = result.groupSettings || {};
 
       document.getElementById('login-screen').style.display = 'none';
       document.getElementById('app').style.display = 'flex';
@@ -845,6 +960,8 @@ async function loadReportsInBackground() {
     if(result.reports) {
       reportsData    = result.reports;
       allBestRecords = result.bestRecords || {};
+      groupsData       = result.groups || groupsData;
+      groupSettingsData = result.groupSettings || groupSettingsData;
       // 画面を再描画
       updateDashboard();
       if(document.getElementById('screen-profile').classList.contains('active')) updateProfile();
@@ -875,6 +992,10 @@ function initApp() {
     document.getElementById('comment-banner-wrap').style.display = 'none';
     document.getElementById('coach-selector-card').style.display = 'block'; 
     document.getElementById('coach-comment-card').style.display = 'block';
+    document.getElementById('coach-admin-card').style.display = 'block';
+    document.getElementById('coach-settings-card').style.display = 'block';
+    renderGroupList();
+    renderGroupTargetButtons();
     document.getElementById('profile-grid-title').innerHTML = '各種目の歴代最高データ <span style="color:var(--red); font-size:11px; font-weight:normal; margin-left:6px;">※赤字は設定日数以上更新なし</span>';
     const selector = document.getElementById('coach-member-select');
     selector.innerHTML = teamMembers.map(m => `<option value="${m}">${m}</option>`).join('');
@@ -886,6 +1007,8 @@ function initApp() {
     document.getElementById('today-detail-wrap').style.display = 'none';
     document.getElementById('coach-selector-card').style.display = 'none';
     document.getElementById('coach-comment-card').style.display = 'none';
+    document.getElementById('coach-admin-card').style.display = 'none';
+    document.getElementById('coach-settings-card').style.display = 'none';
     document.getElementById('profile-grid-title').textContent = '各種目の歴代最高データ';
     selectedPlayerForCoach = null;
   }
@@ -924,7 +1047,8 @@ function updateFormPlaceholders() {
       el.placeholder = f.def;
       return;
     }
-    const config = appConfigMap[f.key];
+    const targetConfigMap = effectiveConfigMap(currentUser.name);
+    const config = targetConfigMap[f.key];
     if (config && config.target != null) {
       el.placeholder = '目標: ' + config.target;
     } else {
@@ -1060,11 +1184,12 @@ function calcDerived() {
 function validateFormInputs(payload) {
   const fieldNamesMap = { height:'身長', weight:'体重', bf:'体脂肪率', bat:'バットスピード', pull:'プルダウン', b1:'ベンチプレス 1RM', s1:'スクワット 1RM', d1:'デッドリフト 1RM', chin:'懸垂', b10:'ベンチプレス 10RM', s10:'スクワット 10RM', d10:'デッドリフト 10RM', med:'メディシン投げ', s10m:'10m走', s30m:'30m走', triple:'三段跳び' };
   const hardLimits = { height: {min:140,max:220}, weight: {min:40,max:180}, bf: {min:3,max:40}, bat: {min:70,max:200}, pull: {min:60,max:200}, b1: {min:20,max:300}, s1: {min:20,max:400}, d1: {min:20,max:450}, chin: {min:0,max:60}, b10: {min:10,max:250}, s10: {min:10,max:300}, d10: {min:10,max:350}, med: {min:3,max:30}, s10m: {min:1.0,max:3.0}, s30m: {min:3.0,max:6.5}, triple: {min:4,max:14} };
+  const targetConfigMap = effectiveConfigMap(currentUser.name);
   for (let key in fieldNamesMap) {
     if (payload[key] === "" || payload[key] === undefined) continue;
     const val = parseFloat(payload[key]); if (isNaN(val)) continue;
-    const configMin = (appConfigMap[key] && appConfigMap[key].min != null) ? appConfigMap[key].min : (hardLimits[key] ? hardLimits[key].min : null);
-    const configMax = (appConfigMap[key] && appConfigMap[key].max != null) ? appConfigMap[key].max : (hardLimits[key] ? hardLimits[key].max : null);
+    const configMin = (targetConfigMap[key] && targetConfigMap[key].min != null) ? targetConfigMap[key].min : (hardLimits[key] ? hardLimits[key].min : null);
+    const configMax = (targetConfigMap[key] && targetConfigMap[key].max != null) ? targetConfigMap[key].max : (hardLimits[key] ? hardLimits[key].max : null);
     if (configMin !== null && val < configMin) { alert(`【入力エラー】${fieldNamesMap[key]}の値 (${val}) が低すぎます。\n下限値: ${configMin} 以上を入力してください。`); return false; }
     if (configMax !== null && val > configMax) { alert(`【入力エラー】${fieldNamesMap[key]}の値 (${val}) が高すぎます。\n上限値: ${configMax} 以下を入力してください。`); return false; }
   }
@@ -1078,7 +1203,7 @@ function showScreen(screenId) {
   if (target) target.classList.add('active');
   const navBtn = document.querySelector(`.nav-btn[data-screen="${screenId}"]`);
   if (navBtn) navBtn.classList.add('active');
-  if (screenId === 'ranking') renderRanking();
+  if (screenId === 'ranking') { populateRankGroupOptions(); renderRanking(); }
   if (screenId === 'profile') { updateProfile(); if (currentUser && currentUser.role === '指導者') renderCoachCommentHistory(); }
   if (screenId === 'messages') { renderPlayerComments(); markCommentsRead(); }
 }
@@ -1290,6 +1415,172 @@ async function postWithRetry(actionBody, maxRetries = 2, baseDelayMs = 1500) {
     attempt++;
   }
   return result;
+}
+
+// ========== グループ管理(指導者用) ==========
+let editingGroupId = '';
+
+function renderGroupList() {
+  const list = document.getElementById('group-list');
+  if (!list) return;
+  if (groupsData.length === 0) {
+    list.innerHTML = `<div style="text-align:center;color:var(--muted);font-size:12px;padding:8px 0;">まだグループがありません</div>`;
+    return;
+  }
+  list.innerHTML = groupsData.map(g => `
+    <div class="group-list-item" onclick="openGroupModal('${g.group_id}')">
+      <div>
+        <div class="group-list-item-name">${g.group_name}</div>
+        <div class="group-list-item-members">${g.members.join('、')}</div>
+      </div>
+      <div style="color:var(--muted);">›</div>
+    </div>`).join('');
+}
+
+function openGroupModal(groupId = '') {
+  editingGroupId = groupId;
+  const group = groupId ? groupsData.find(g => g.group_id === groupId) : null;
+  document.getElementById('group-modal-title').textContent = group ? `👥 ${group.group_name} を編集` : '👥 グループを作成';
+  document.getElementById('group-name-input').value = group ? group.group_name : '';
+  document.getElementById('group-delete-btn').style.display = group ? 'block' : 'none';
+  const memberList = document.getElementById('group-member-list');
+  memberList.innerHTML = teamMembers.map(name => {
+    const checked = group && group.members.includes(name) ? 'checked' : '';
+    return `<label class="group-member-chk"><input type="checkbox" value="${name}" ${checked}><span>${name}</span></label>`;
+  }).join('');
+  document.getElementById('group-modal').classList.add('active');
+}
+function closeGroupModal() { document.getElementById('group-modal').classList.remove('active'); }
+
+async function submitGroup() {
+  const groupName = document.getElementById('group-name-input').value.trim();
+  if (!groupName) { alert('グループ名を入力してください'); return; }
+  const members = Array.from(document.querySelectorAll('#group-member-list input:checked')).map(el => el.value);
+  if (members.length === 0) { alert('メンバーを1人以上選択してください'); return; }
+  const btn = document.getElementById('group-save-btn'); btn.disabled = true; btn.textContent = '保存中...';
+  try {
+    const result = await postWithRetry({ action: 'saveGroup', group: { group_id: editingGroupId, group_name: groupName, members } });
+    if (result.ok || result.success) {
+      if (editingGroupId) {
+        const g = groupsData.find(x => x.group_id === editingGroupId);
+        if (g) { g.group_name = groupName; g.members = members; }
+      } else {
+        groupsData.push({ group_id: result.group_id, group_name: groupName, members });
+      }
+      renderGroupList();
+      renderGroupTargetButtons();
+      populateRankGroupOptions();
+      showToast('✓ グループを保存しました');
+      closeGroupModal();
+    } else { alert(result.message || '保存に失敗しました'); }
+  } catch (e) { alert('保存に失敗しました。'); }
+  btn.disabled = false; btn.textContent = '保存する';
+}
+
+async function deleteGroupConfirm() {
+  if (!editingGroupId) return;
+  if (!confirm('このグループを削除しますか？グループ別の目標値設定も削除されます。')) return;
+  const btn = document.getElementById('group-delete-btn'); btn.disabled = true;
+  try {
+    const result = await postWithRetry({ action: 'deleteGroup', group_id: editingGroupId });
+    if (result.ok || result.success) {
+      groupsData = groupsData.filter(g => g.group_id !== editingGroupId);
+      delete groupSettingsData[editingGroupId];
+      renderGroupList();
+      renderGroupTargetButtons();
+      populateRankGroupOptions();
+      showToast('✓ グループを削除しました');
+      closeGroupModal();
+    } else { alert(result.message || '削除に失敗しました'); }
+  } catch (e) { alert('削除に失敗しました。'); }
+  btn.disabled = false;
+}
+
+// ========== 目標値設定(指導者用) ==========
+// EXPORT_ITEMSの種目に対応する単位(target値の入力欄に表示用)
+function targetUnitFor(id) {
+  const unitKey = Object.keys(eventMap).find(k => eventMap[k] === id);
+  return unitKey ? (units[unitKey] || '') : '';
+}
+
+let editingTargetGroupId = '';
+
+function renderGroupTargetButtons() {
+  const wrap = document.getElementById('group-target-btns');
+  if (!wrap) return;
+  wrap.innerHTML = groupsData.map(g =>
+    `<button class="pdf-btn" style="width:100%;justify-content:center;" onclick="openTargetSettingsModal('${g.group_id}')">${g.group_name} の目標値を設定</button>`
+  ).join('');
+}
+
+function openTargetSettingsModal(groupId) {
+  editingTargetGroupId = groupId;
+  const isGroup = !!groupId;
+  const group = isGroup ? groupsData.find(g => g.group_id === groupId) : null;
+  document.getElementById('target-settings-title').textContent = isGroup ? `🎯 ${group.group_name} の目標値設定` : '🎯 チーム全体の目標値設定';
+  document.getElementById('target-settings-desc').textContent = isGroup
+    ? '空欄の項目はチーム全体の設定が使われます。'
+    : 'チーム全体のデフォルト目標値です。グループ別設定がある選手はそちらが優先されます。';
+
+  const sourceMap = isGroup ? (groupSettingsData[groupId] || {}) : appConfigMap;
+  const body = document.getElementById('target-settings-body');
+  body.innerHTML = EXPORT_ITEMS.map(item => {
+    const cfg = sourceMap[item.id] || {};
+    const unit = targetUnitFor(item.id);
+    const placeholder = isGroup && appConfigMap[item.id] ? String(appConfigMap[item.id].target ?? '') : '';
+    return `<div class="target-row">
+      <div class="target-row-title">${item.label}${unit ? ` (${unit})` : ''}</div>
+      <div class="target-row-grid">
+        <div class="form-group"><label class="form-label">目標値</label><input type="number" class="form-input" id="ts-${item.id}-target" step="0.01" value="${cfg.target ?? ''}" placeholder="${placeholder}"></div>
+        <div class="form-group"><label class="form-label">停滞判定(日)</label><input type="number" class="form-input" id="ts-${item.id}-days" step="1" value="${cfg.days ?? ''}" placeholder="30"></div>
+        <div class="form-group"><label class="form-label">下限値</label><input type="number" class="form-input" id="ts-${item.id}-min" step="0.01" value="${cfg.min ?? ''}"></div>
+        <div class="form-group"><label class="form-label">上限値</label><input type="number" class="form-input" id="ts-${item.id}-max" step="0.01" value="${cfg.max ?? ''}"></div>
+      </div>
+    </div>`;
+  }).join('');
+  document.getElementById('target-settings-modal').classList.add('active');
+}
+function closeTargetSettingsModal() { document.getElementById('target-settings-modal').classList.remove('active'); }
+
+async function submitTargetSettings() {
+  const settings = {};
+  EXPORT_ITEMS.forEach(item => {
+    const target = document.getElementById(`ts-${item.id}-target`).value;
+    const days = document.getElementById(`ts-${item.id}-days`).value;
+    const min = document.getElementById(`ts-${item.id}-min`).value;
+    const max = document.getElementById(`ts-${item.id}-max`).value;
+    // 何か1つでも入力があれば登録対象に含める(グループ別設定では空欄=チーム全体にフォールバック)
+    if (target !== '' || days !== '' || min !== '' || max !== '') {
+      settings[item.id] = {
+        target: target !== '' ? parseFloat(target) : null,
+        days: days !== '' ? parseInt(days) : null,
+        min: min !== '' ? parseFloat(min) : null,
+        max: max !== '' ? parseFloat(max) : null
+      };
+    }
+  });
+  const btn = document.getElementById('target-settings-save-btn'); btn.disabled = true; btn.textContent = '保存中...';
+  try {
+    let result;
+    if (editingTargetGroupId) {
+      result = await postWithRetry({ action: 'saveGroupSettings', group_id: editingTargetGroupId, settings });
+      if (result.ok || result.success) groupSettingsData[editingTargetGroupId] = { ...(groupSettingsData[editingTargetGroupId]||{}), ...settings };
+    } else {
+      result = await postWithRetry({ action: 'saveTeamSettings', settings });
+      if (result.ok || result.success) {
+        Object.keys(settings).forEach(k => { appConfigMap[k] = { ...(appConfigMap[k]||{}), ...settings[k] }; });
+        teamConfigMap = appConfigMap;
+      }
+    }
+    if (result.ok || result.success) {
+      showToast('✓ 目標値を保存しました');
+      closeTargetSettingsModal();
+      // 表示中の画面を再描画
+      if (document.getElementById('screen-profile').classList.contains('active')) updateProfile();
+      if (document.getElementById('screen-report').classList.contains('active')) updateFormPlaceholders();
+    } else { alert(result.message || '保存に失敗しました'); }
+  } catch (e) { alert('保存に失敗しました。'); }
+  btn.disabled = false; btn.textContent = '保存する';
 }
 
 async function submitReport() {
