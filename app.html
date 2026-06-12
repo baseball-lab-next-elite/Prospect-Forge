@@ -484,7 +484,7 @@
 <div id="toast">✓ 報告を送信しました！</div>
 
 <script>
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbzQrWvn9RiUjbPc4BeQEvgTwPVjH24EhSt-diWzQ85QL05FDv87AqhS7iU13WrTDdV4/exec';
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbysn03kw5zoiUFJEFDeOTMFUsXOXT2xpK5kdldbaQK3a7KGrHoPcepTS4dY8gF3n4Pw/exec';
 
 let currentUser = null;
 let teamMembers = [];
@@ -694,38 +694,67 @@ async function attemptLogin() {
   const userId = document.getElementById('l-id').value.trim();
   const password = document.getElementById('l-pass').value.trim();
   if(!name || !userId || !password) { alert('すべての項目を入力してください'); return; }
-  
+
+  const btn = document.querySelector('.login-btn') || document.querySelector('button[onclick*="attemptLogin"]');
+  if(btn) { btn.disabled = true; btn.textContent = 'ログイン中...'; }
+
   try {
+    // ① 認証のみ（reportsを返さない軽量モード）
     const response = await fetch(GAS_URL, {
-      method: 'POST',
-      mode: 'cors',
-      redirect: 'follow',
+      method: 'POST', mode: 'cors', redirect: 'follow',
       headers: { 'Content-Type': 'text/plain' },
-      body: JSON.stringify({ action: 'login', name: name, userId: userId, password: password })
+      body: JSON.stringify({ action: 'login', name, userId, password, lightMode: true })
     });
     const text = await response.text();
     let result;
     try { result = JSON.parse(text); }
-    catch(e) { alert('サーバーの応答が不正です。GASのデプロイ設定（アクセス：全員）を確認してください。\n\n応答:' + text.slice(0,200)); return; }
-    
-    if(result.success) {
-      currentUser = result.user;
-      teamMembers = result.members || [];
-      reportsData = result.reports || [];
-      allBestRecords = result.bestRecords || {};
-      appConfigMap = result.config || {};
-      
+    catch(e) {
+      alert('サーバーの応答が不正です。GASのデプロイ設定（アクセス：全員）を確認してください。\n\n応答:' + text.slice(0,200));
+      if(btn) { btn.disabled = false; btn.textContent = 'ログイン'; }
+      return;
+    }
+
+    if(result.success || result.ok) {
+      currentUser    = result.user;
+      teamMembers    = result.members || [];
+      reportsData    = [];
+      allBestRecords = {};
+      appConfigMap   = result.config || {};
+
       document.getElementById('login-screen').style.display = 'none';
       document.getElementById('app').style.display = 'flex';
-      
       initApp();
+
+      // ② 画面表示後にバックグラウンドでデータ取得
+      loadReportsInBackground();
     } else {
       alert(result.message || result.error || 'ログインに失敗しました');
+      if(btn) { btn.disabled = false; btn.textContent = 'ログイン'; }
     }
   } catch (error) {
     alert('通信に失敗しました。GASのデプロイURL・アクセス設定を確認してください。\n\n' + error.message);
     console.error(error);
+    if(btn) { btn.disabled = false; btn.textContent = 'ログイン'; }
   }
+}
+
+async function loadReportsInBackground() {
+  try {
+    const response = await fetch(GAS_URL, {
+      method: 'POST', mode: 'cors', redirect: 'follow',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: 'getReports' })
+    });
+    const result = await response.json();
+    if(result.reports) {
+      reportsData    = result.reports;
+      allBestRecords = result.bestRecords || {};
+      // 画面を再描画
+      updateDashboard();
+      if(document.getElementById('screen-profile').classList.contains('active')) updateProfile();
+      if(document.getElementById('screen-ranking').classList.contains('active')) renderRanking();
+    }
+  } catch(e) { console.warn('バックグラウンドデータ取得失敗:', e); }
 }
 
 function initApp() {
