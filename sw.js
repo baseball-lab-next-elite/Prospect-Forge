@@ -1,6 +1,6 @@
-const CACHE_NAME = 'prospect-forge-v2';
+const CACHE_NAME = 'prospect-forge-v3';
 const STATIC_ASSETS = [
-  'app.html',
+  'index.html',
   'manifest.json',
   'icon.png',
   'icon_large.png'
