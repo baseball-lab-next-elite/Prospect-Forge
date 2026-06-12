@@ -491,7 +491,7 @@
 <div id="toast">✓ 報告を送信しました！</div>
 
 <script>
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbxuMU6UuOKfxPmMcwVczdIIYXXr8lF3pwUKO_RMh38zUCxEOWI8E_iYhy-waBeNKYiE/exec';
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbwTvmSUmh-yMsIqY5jsU9rWx-WzRKCb_gZDDWwBG1LnK5iqXtPwja4y5zHU9ix9AEcG/exec';
 
 let currentUser = null;
 let teamMembers = [];
@@ -977,9 +977,7 @@ async function sendComment() {
   const nowJST = new Date(new Date().getTime() + 9*60*60*1000);
   const comment = { from: currentUser.name, to: selectedPlayerForCoach, body, date: nowJST.toISOString().replace('T',' ').slice(0,16), read: false };
   try {
-    const res = await fetch(GAS_URL, { method:'POST', mode:'cors', headers:{'Content-Type':'text/plain'},
-      body: JSON.stringify({ action:'sendComment', comment }) });
-    const result = await res.json();
+    const result = await postWithRetry({ action:'sendComment', comment });
     if (result.success) {
       commentsData.push({ ...comment, id: result.id });
       document.getElementById('coach-comment-input').value = '';
@@ -1066,9 +1064,7 @@ async function sendUrgeMessages() {
   const btn = document.querySelector('#urge-modal .submit-btn');
   btn.disabled = true; btn.textContent = '送信中...';
   try {
-    const res = await fetch(GAS_URL, { method:'POST', mode:'cors', headers:{'Content-Type':'text/plain'},
-      body: JSON.stringify({ action:'sendUrge', from: currentUser.name, targets, body, date }) });
-    const result = await res.json();
+    const result = await postWithRetry({ action:'sendUrge', from: currentUser.name, targets, body, date });
     if (result.success) {
       targets.forEach(name => {
         commentsData.push({ from: currentUser.name, to: name, body: `【催促】${body}`, date, read: false });
@@ -1149,6 +1145,17 @@ function setRankMode(mode) {
   renderRanking();
 }
 
+// 混雑(retry:true)時に少し待って1回だけ再送する
+async function postWithRetry(actionBody, retryDelayMs = 1500) {
+  const doFetch = () => fetch(GAS_URL, { method: 'POST', mode: 'cors', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(actionBody) }).then(r => r.json());
+  let result = await doFetch();
+  if (result && result.retry) {
+    await new Promise(r => setTimeout(r, retryDelayMs));
+    result = await doFetch();
+  }
+  return result;
+}
+
 async function submitReport() {
   const w_pre = parseFloat(document.getElementById('f-weight').value) || ""; const bf_pre = parseFloat(document.getElementById('f-bf').value) || ""; const h_pre = parseFloat(document.getElementById('f-height').value) || "";
   const prePayload = { height: h_pre, weight: w_pre, bf: bf_pre, bat: parseFloat(document.getElementById('f-bat').value) || "", pull: parseFloat(document.getElementById('f-pull').value) || "", b1: parseFloat(document.getElementById('f-b1').value) || "", s1: parseFloat(document.getElementById('f-s1').value) || "", d1: parseFloat(document.getElementById('f-d1').value) || "", chin: parseInt(document.getElementById('f-chin').value) || "", b10: parseFloat(document.getElementById('f-b10').value) || "", s10: parseFloat(document.getElementById('f-s10').value) || "", d10: parseFloat(document.getElementById('f-d10').value) || "", med: parseFloat(document.getElementById('f-med').value) || "", s10m: parseFloat(document.getElementById('f-10m').value) || "", s30m: parseFloat(document.getElementById('f-30m').value) || "", triple: parseFloat(document.getElementById('f-triple').value) || "" };
@@ -1157,8 +1164,7 @@ async function submitReport() {
   let ffm = ""; let ffmi = ""; if(w_pre && bf_pre) { ffm = parseFloat((w_pre * (1 - bf_pre/100)).toFixed(2)); if(h_pre) ffmi = parseFloat((ffm / Math.pow(h_pre/100, 2)).toFixed(2)); }
   const payload = { date: document.getElementById('f-date').value, name: currentUser.name, height: h_pre, weight: w_pre, bf: bf_pre, ffm: ffm, ffmi: ffmi, bat: prePayload.bat, pull: prePayload.pull, b1: prePayload.b1, s1: prePayload.s1, d1: prePayload.d1, chin: prePayload.chin, b10: prePayload.b10, s10: prePayload.s10, d10: prePayload.d10, med: prePayload.med, s10m: prePayload.s10m, s30m: prePayload.s30m, triple: prePayload.triple };
   try {
-    const response = await fetch(GAS_URL, { method: 'POST', mode: 'cors', headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify({ action: 'report', payload: payload }) });
-    const result = await response.json();
+    const result = await postWithRetry({ action: 'report', payload: payload });
     if(result.ok || result.success) {
       let existingIdx = reportsData.findIndex(r => r.name === payload.name && r.date === payload.date);
       if (existingIdx !== -1) { for (let key in payload) { if (payload[key] !== "") reportsData[existingIdx][key] = payload[key]; } } else { reportsData.push(payload); }
